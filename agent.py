@@ -78,24 +78,24 @@ def read_file(path: str) -> str:
 def list_files(path: str) -> str:
     """
     List files and directories at a given path.
-    
+
     Args:
         path: Relative directory path from project root.
-    
+
     Returns:
         Newline-separated listing of entries, or error message.
     """
     if not is_safe_path(path):
         return f"Error: Access denied - path '{path}' is not allowed"
-    
+
     dir_path = PROJECT_ROOT / path
-    
+
     if not dir_path.exists():
         return f"Error: Directory not found - '{path}'"
-    
+
     if not dir_path.is_dir():
         return f"Error: Not a directory - '{path}'"
-    
+
     try:
         entries = sorted(dir_path.iterdir())
         lines = []
@@ -105,13 +105,65 @@ def list_files(path: str) -> str:
                 continue
             if entry.name in ('.venv', '.git', 'node_modules', '__pycache__', '.qwen'):
                 continue
-            
+
             suffix = "/" if entry.is_dir() else ""
             lines.append(f"{entry.name}{suffix}")
-        
+
         return "\n".join(lines)
     except Exception as e:
         return f"Error listing directory: {str(e)}"
+
+
+def query_api(method: str, path: str, body: str | None = None, use_auth: bool = True) -> str:
+    """
+    Call the deployed backend API.
+
+    Args:
+        method: HTTP method (GET, POST, PUT, DELETE, PATCH)
+        path: API endpoint path (e.g., '/items/', '/analytics/completion-rate')
+        body: Optional JSON request body for POST/PUT/PATCH requests
+        use_auth: Whether to include authentication header (default: True)
+
+    Returns:
+        JSON string with status_code and body (or error)
+    """
+    # Read configuration from environment
+    api_base = os.getenv('AGENT_API_BASE_URL', 'http://localhost:42002')
+    api_key = os.getenv('LMS_API_KEY')
+
+    url = f"{api_base}{path}"
+
+    headers = {
+        "Content-Type": "application/json"
+    }
+    
+    if use_auth and api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    elif use_auth and not api_key:
+        return json.dumps({
+            "status_code": 0,
+            "error": "LMS_API_KEY not configured in environment"
+        })
+
+    try:
+        response = requests.request(
+            method=method,
+            url=url,
+            headers=headers,
+            json=json.loads(body) if body else None,
+            timeout=30
+        )
+
+        result = {
+            "status_code": response.status_code,
+            "body": response.text
+        }
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({
+            "status_code": 0,
+            "error": str(e)
+        })
 
 
 # Tool schemas for LLM function calling
@@ -120,13 +172,13 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read the contents of a file from the project repository. Use this to read wiki documentation files.",
+            "description": "Read the contents of a file from the project repository. Use this to read wiki documentation files and source code.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Relative path from project root (e.g., 'wiki/git-workflow.md')"
+                        "description": "Relative path from project root (e.g., 'wiki/git-workflow.md', 'backend/app/main.py')"
                     }
                 },
                 "required": ["path"]
@@ -137,16 +189,46 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "list_files",
-            "description": "List files and directories at a given path. Use this to discover what wiki files are available.",
+            "description": "List files and directories at a given path. Use this to discover what files are available.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Relative directory path from project root (e.g., 'wiki')"
+                        "description": "Relative directory path from project root (e.g., 'wiki', 'backend/app/routers')"
                     }
                 },
                 "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_api",
+            "description": "Call the deployed backend API to fetch data or trigger actions. Use this for questions about database contents, analytics, API behavior, or status codes. Use use_auth=false to test unauthenticated requests.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "method": {
+                        "type": "string",
+                        "description": "HTTP method (GET, POST, PUT, DELETE, PATCH)",
+                        "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "API endpoint path (e.g., '/items/', '/analytics/completion-rate')"
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Optional JSON request body for POST/PUT/PATCH requests"
+                    },
+                    "use_auth": {
+                        "type": "boolean",
+                        "description": "Whether to include authentication header (default: true). Set to false to test unauthenticated requests."
+                    }
+                },
+                "required": ["method", "path"]
             }
         }
     }
@@ -155,51 +237,74 @@ TOOL_SCHEMAS = [
 # Map tool names to functions
 TOOL_FUNCTIONS = {
     "read_file": read_file,
-    "list_files": list_files
+    "list_files": list_files,
+    "query_api": query_api
 }
 
-SYSTEM_PROMPT = """You are a documentation assistant that helps users find information in the project wiki.
+SYSTEM_PROMPT = """You are a system agent that helps users find information about the project.
 
-You have access to two tools:
+You have access to three tools:
 1. list_files - List files and directories at a given path
-2. read_file - Read the contents of a file
+2. read_file - Read the contents of a file (use for wiki docs and source code)
+3. query_api - Call the backend API (use for data queries and API behavior questions)
+
+Tool selection guide:
+- Use list_files/read_file with "wiki/" path for documentation questions (e.g., "how to protect a branch")
+- Use read_file with source code paths (backend/app/, docker-compose.yml, etc.) for system facts (e.g., "what framework", "what port")
+- Use query_api for questions about database contents, analytics, or API responses (e.g., "how many items", "what status code")
 
 When answering questions:
-1. First use list_files to discover relevant wiki files (start with "wiki" directory)
-2. Then use read_file to read the contents of relevant files
-3. Find the specific section that answers the question
-4. Provide a concise answer with the source reference
+1. Identify what type of information is needed
+2. Use the appropriate tool(s)
+3. For API errors, use read_file to find the buggy source code
+4. Provide concise answers with source references when applicable
 
-Source reference format: wiki/filename.md#section-anchor
+Source reference format for files: path/filename.md#section-anchor
 - Use the file path relative to project root
 - Add #section-anchor for the specific section (use lowercase with hyphens)
 
-Always include the source field in your final answer pointing to the exact wiki file and section.
+Always include the source field in your final answer when reading files.
+For API queries, mention the endpoint used.
 
-If you cannot find the answer after exploring relevant files, say so and suggest which files might contain the answer.
-
-Think step by step: explore the wiki structure, read relevant files, then provide your answer with source."""
+Think step by step: choose the right tool, execute it, analyze results, then provide your answer."""
 
 
 def execute_tool(tool_name: str, args: dict) -> str:
     """
     Execute a tool with the given arguments.
-    
+
     Args:
         tool_name: Name of the tool to execute.
         args: Arguments for the tool.
-    
+
     Returns:
         Tool result as a string.
     """
     if tool_name not in TOOL_FUNCTIONS:
         return f"Error: Unknown tool '{tool_name}'"
-    
+
     func = TOOL_FUNCTIONS[tool_name]
-    path = args.get("path", "")
-    
+
     try:
-        return func(path)
+        if tool_name == "query_api":
+            method = args.get("method", "GET")
+            path = args.get("path", "")
+            body = args.get("body")
+            use_auth = args.get("use_auth", True)
+            return func(method, path, body, use_auth)
+        elif tool_name == "read_file":
+            path = args.get("path")
+            if not path:
+                return "Error: read_file requires a 'path' argument. Example: {'path': 'wiki/git-workflow.md'}"
+            return func(path)
+        elif tool_name == "list_files":
+            path = args.get("path")
+            if not path:
+                return "Error: list_files requires a 'path' argument. Example: {'path': 'wiki'}"
+            return func(path)
+        else:
+            path = args.get("path", "")
+            return func(path)
     except Exception as e:
         return f"Error executing {tool_name}: {str(e)}"
 
@@ -207,24 +312,26 @@ def execute_tool(tool_name: str, args: dict) -> str:
 def call_lllm(messages: list, tools: list, api_key: str, api_base: str, model: str) -> dict:
     """
     Call the LLM API with messages and tool definitions.
-    
+
     Args:
         messages: List of message objects.
         tools: List of tool schemas.
         api_key: API key for authentication.
         api_base: Base URL for the API.
         model: Model name to use.
-    
+
     Returns:
         Parsed response from the LLM.
     """
     url = f"{api_base}/chat/completions"
-    
+
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost",
+        "X-Title": "SE Toolkit Agent"
     }
-    
+
     data = {
         "model": model,
         "messages": messages,
@@ -233,10 +340,10 @@ def call_lllm(messages: list, tools: list, api_key: str, api_base: str, model: s
         "temperature": 0.3,
         "max_tokens": 1500
     }
-    
+
     response = requests.post(url, headers=headers, json=data, timeout=60)
     response.raise_for_status()
-    
+
     return response.json()
 
 
@@ -347,7 +454,8 @@ def main() -> None:
             else:
                 # No tool calls - this is the final answer
                 log_debug("LLM returned final answer (no tool calls)")
-                final_answer = assistant_message.get('content', '')
+                # Handle case where content is null (not missing)
+                final_answer = assistant_message.get('content') or ''
                 
                 # Try to extract source from the answer or use a default
                 # Look for patterns like "wiki/file.md" or "source: wiki/file.md"
