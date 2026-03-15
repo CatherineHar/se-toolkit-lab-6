@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Documentation Agent with agentic loop.
-Uses LLM function calling to navigate the project wiki with read_file and list_files tools.
+Uses LLM function calling to navigate the project wiki with read_file and list_files tools   
 """
 
 import os
