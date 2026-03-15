@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regression tests for the System Agent
+Regression tests for the System Agent Ekaterina Katya Polina Alisa sofa ZHENYA
 Tests verify that the agent uses the correct tools for different question types
 """
 
