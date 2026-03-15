@@ -1,6 +1,6 @@
 # Plan: System Agent with query_api Tool (Task 3)
-
-## Goal
+#hello
+## Goal   
 Extend the Task 2 documentation agent with a `query_api` tool to talk to the deployed backend API. The agent will answer:
 1. **Static system facts** — framework, ports, status codes (via `read_file` on source code)
 2. **Data-dependent queries** — item count, scores, analytics (via `query_api`)

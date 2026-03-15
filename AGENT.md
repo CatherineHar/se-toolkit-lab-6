@@ -1,4 +1,4 @@
-# System Agent
+# System Agent cool
 
 ## Overview
 A CLI agent that uses an LLM to answer questions about the project wiki, source code, and deployed backend API. The agent has tools to navigate the file system (`list_files`), read files (`read_file`), and query the backend API (`query_api`). It uses an agentic loop to find answers and cite sources.
@@ -7,7 +7,7 @@ A CLI agent that uses an LLM to answer questions about the project wiki, source 
 - **API**: OpenRouter.ai (OpenAI-compatible endpoint)
 - **Model**: `meta-llama/llama-3.3-70b-instruct:free` (configurable)
 
-## Tools
+## Tools fewyuo1f3hg7r
 
 The agent has three tools registered as function-calling schemas:
 
