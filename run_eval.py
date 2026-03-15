@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Local evaluation runner for the agent benchmark.   
+"""Local evaluation runner for the agent benchmark.
 
 Fetches questions one at a time from the autochecker API,
-runs your agent, and checks the answer locally.
+runs your agent, and checks  the answer locally.
 Stops at the first failure.
 
 Usage:
